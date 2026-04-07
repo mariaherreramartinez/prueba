@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Daily Time Tracker</title>
+    <style>
+        :root {
+            --bg: #f4f7f6;
+            --card: #ffffff;
+            --text: #333;
+            --primary: #4a90e2;
+            --danger: #e74c3c;
+            --success: #2ecc71;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+        }
+
+        .card {
+            background: var(--card);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h2 { margin-top: 0; font-size: 1.2rem; border-bottom: 2px solid var(--bg); padding-bottom: 10px; }
+
+        /* Controles de Tarea Activa */
+        .active-task-ui {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        input, select, button {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #ddd;
+            font-size: 14px;
+        }
+
+        input#taskName { flex-grow: 1; }
+
+        button {
+            cursor: pointer;
+            border: none;
+            transition: opacity 0.2s;
+            font-weight: bold;
+        }
+
+        button:hover { opacity: 0.8; }
+
+        .btn-start { background-color: var(--success); color: white; }
+        .btn-stop { background-color: var(--danger); color: white; }
+        .btn-export { background-color: var(--primary); color: white; }
+        .btn-clear { background-color: #95a5a6; color: white; }
+
+        /* Cronómetro */
+        #liveTimer {
+            font-family: monospace;
+            font-size: 2rem;
+            font-weight: bold;
+            text-align: center;
+            margin: 10px 0;
+            color: var(--primary);
+        }
+
+        /* Tabla de Registros */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .project-tag {
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
+
+        /* Resumen */
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+        }
+
+        .summary-item {
+            background: var(--bg);
+            padding: 10px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .delete-btn {
+            color: var(--danger);
+            cursor: pointer;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>⏱️ Time Tracker</h1>
+
+    <div class="card">
+        <h2 id="statusTitle">Nueva Tarea</h2>
+        <div class="active-task-ui">
+            <input type="text" id="taskName" placeholder="¿En qué estás trabajando?">
+            <select id="projectSelect">
+                </select>
+            <button id="mainBtn" class="btn-start" onclick="toggleTask()">Iniciar</button>
+        </div>
+        <div id="liveTimer">00:00:00</div>
+    </div>
+
+    <div class="card">
+        <h2>Resumen Diario</h2>
+        <div id="totalDayTime" style="font-weight: bold; margin-bottom: 10px;">Total: 0h 0m 0s</div>
+        <div class="summary-grid" id="projectSummary">
+            </div>
+    </div>
+
+    <div class="card">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h2>Registros de Hoy</h2>
+            <div>
+                <button class="btn-export" onclick="exportCSV()">Exportar CSV</button>
+                <button class="btn-clear" onclick="clearAll()">Limpiar Todo</button>
+            </div>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Proyecto</th>
+                    <th>Tarea</th>
+                    <th>Inicio/Fin</th>
+                    <th>Duración</th>
+                    <th>Acción</th>
+                </tr>
+            </thead>
+            <tbody id="logTableBody">
+                </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let projects = JSON.parse(localStorage.getItem('projects')) || ["General", "Reuniones", "Desarrollo", "Diseño"];
+    let logs = JSON.parse(localStorage.getItem('logs')) || [];
+    let activeTask = JSON.parse(localStorage.getItem('activeTask')) || null;
+    let timerInterval;
+
+    const projectColors = {};
+
+    function init() {
+        renderProjects();
+        renderLogs();
+        renderSummary();
+        if (activeTask) {
+            startTimerDisplay();
+            document.getElementById('mainBtn').innerText = "Detener";
+            document.getElementById('mainBtn').className = "btn-stop";
+            document.getElementById('taskName').value = activeTask.name;
+            document.getElementById('projectSelect').value = activeTask.project;
+        }
+    }
+
+    // Generar color estable basado en el nombre del proyecto
+    function getProjectColor(projectName) {
+        if (!projectColors[projectName]) {
+            let hash = 0;
+            for (let i = 0; i < projectName.length; i++) {
+                hash = projectName.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            projectColors[projectName] = `hsl(${hash % 360}, 60%, 45%)`;
+        }
+        return projectColors[projectName];
+    }
+
+    function renderProjects() {
+        const select = document.getElementById('projectSelect');
+        select.innerHTML = projects.map(p => `<option value="${p}">${p}</option>`).join('');
+    }
+
+    function toggleTask() {
+        if (!activeTask) {
+            const name = document.getElementById('taskName').value || "Tarea sin nombre";
+            const project = document.getElementById('projectSelect').value;
+            activeTask = { name, project, start: new Date().getTime() };
+            localStorage.setItem('activeTask', JSON.stringify(activeTask));
+            
+            document.getElementById('mainBtn').innerText = "Detener";
+            document.getElementById('mainBtn').className = "btn-stop";
+            startTimerDisplay();
+        } else {
+            stopTask();
+        }
+    }
+
+    function stopTask() {
+        const endTime = new Date().getTime();
+        const duration = endTime - activeTask.start;
+        
+        const newLog = {
+            ...activeTask,
+            end: endTime,
+            duration: duration,
+            id: Date.now()
+        };
+
+        logs.push(newLog);
+        saveData();
+        
+        activeTask = null;
+        localStorage.removeItem('activeTask');
+        clearInterval(timerInterval);
+        
+        document.getElementById('mainBtn').innerText = "Iniciar";
+        document.getElementById('mainBtn').className = "btn-start";
+        document.getElementById('liveTimer').innerText = "00:00:00";
+        document.getElementById('taskName').value = "";
+        
+        renderLogs();
+        renderSummary();
+    }
+
+    function startTimerDisplay() {
+        clearInterval(timerInterval);
+        timerInterval = setInterval(() => {
+            const now = new Date().getTime();
+            const diff = now - activeTask.start;
+            document.getElementById('liveTimer').innerText = formatDuration(diff);
+        }, 1000);
+    }
+
+    function formatDuration(ms) {
+        const hrs = Math.floor(ms / 3600000);
+        const mins = Math.floor((ms % 3600000) / 60000);
+        const secs = Math.floor((ms % 60000) / 1000);
+        return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    function formatTime(timestamp) {
+        return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function renderLogs() {
+        const tbody = document.getElementById('logTableBody');
+        tbody.innerHTML = logs.slice().reverse().map(log => `
+            <tr>
+                <td><span class="project-tag" style="background:${getProjectColor(log.project)}">${log.project}</span></td>
+                <td>${log.name}</td>
+                <td>${formatTime(log.start)} - ${formatTime(log.end)}</td>
+                <td>${formatDuration(log.duration)}</td>
+                <td><span class="delete-btn" onclick="deleteLog(${log.id})">✕</span></td>
+            </tr>
+        `).join('');
+    }
+
+    function renderSummary() {
+        const totals = {};
+        let dayTotal = 0;
+
+        logs.forEach(log => {
+            totals[log.project] = (totals[log.project] || 0) + log.duration;
+            dayTotal += log.duration;
+        });
+
+        document.getElementById('totalDayTime').innerText = `Total Hoy: ${formatDuration(dayTotal)}`;
+
+        const summaryGrid = document.getElementById('projectSummary');
+        summaryGrid.innerHTML = Object.keys(totals).map(p => `
+            <div class="summary-item">
+                <div style="font-weight:bold; color:${getProjectColor(p)}">${p}</div>
+                <div>${formatDuration(totals[p])}</div>
+            </div>
+        `).join('');
+    }
+
+    function deleteLog(id) {
+        if(confirm("¿Eliminar este registro?")) {
+            logs = logs.filter(l => l.id !== id);
+            saveData();
+            renderLogs();
+            renderSummary();
+        }
+    }
+
+    function clearAll() {
+        if(confirm("¿Estás seguro de que quieres limpiar todos los registros del día?")) {
+            logs = [];
+            saveData();
+            renderLogs();
+            renderSummary();
+        }
+    }
+
+    function saveData() {
+        localStorage.setItem('logs', JSON.stringify(logs));
+    }
+
+    function exportCSV() {
+        let csv = "Proyecto,Tarea,Inicio,Fin,Duracion(ms)\n";
+        logs.forEach(l => {
+            csv += `${l.project},${l.name},${new Date(l.start).toISOString()},${new Date(l.end).toISOString()},${l.duration}\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.setAttribute('href', url);
+        a.setAttribute('download', `time-log-${new Date().toISOString().split('T')[0]}.csv`);
+        a.click();
+    }
+
+    init();
+</script>
+
+</body>
+</html>
